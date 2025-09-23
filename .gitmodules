@@ -1,0 +1,3 @@
+[submodule "libonnx"]
+	path = libonnx
+	url = https://github.com/charlesneimog/libonnx
