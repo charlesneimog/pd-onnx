@@ -1,6 +1,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
+#include <chrono>
 
 #include <m_pd.h>
 #include <g_canvas.h>
@@ -14,7 +15,11 @@ typedef struct _onnx_tilde {
     t_object obj;
     t_sample s;
     t_canvas *c;
+
+    bool time_inference;
+
     bool supported;
+
     struct onnx_context_t *ctx;
     int tensor_out_count;
     t_symbol **tensor_outputs;
@@ -64,6 +69,19 @@ int onnx_tilde_check_compatibility(t_onnx_tilde *x) {
 // ╭─────────────────────────────────────╮
 // │           Object Methods            │
 // ╰─────────────────────────────────────╯
+static void onnx_tilde_set(t_onnx_tilde *x, t_symbol *s, int argc, t_atom *argv) {
+    if (argv[0].a_type != A_SYMBOL) {
+        pd_error(x, "[onnx~] First argument must be a symbol, e.g., 'tensors'");
+        return;
+    }
+
+    const char *method = atom_getsymbol(argv)->s_name;
+    if (strcmp(method, "time_inference") == 0) {
+        x->time_inference = argv[1].a_type == A_FLOAT && atom_getfloat(&argv[1]) > 0.0;
+    }
+}
+
+// ─────────────────────────────────────
 static void onnx_tilde_dump(t_onnx_tilde *x, t_symbol *s, int argc, t_atom *argv) {
     if (!x || !x->ctx || !x->ctx->g) {
         pd_error(x, "[onnx~] Invalid context or graph");
@@ -137,8 +155,6 @@ static void onnx_tilde_dump(t_onnx_tilde *x, t_symbol *s, int argc, t_atom *argv
                 }
             }
         }
-
-        post("[onnx~] Compatibility check");
         post("[onnx~] Model IR version: %lld", (long long)ctx->model->ir_version);
         for (int i = 0; i < ctx->model->n_opset_import; i++) {
             const char *d = ctx->model->opset_import[i]->domain;
@@ -156,6 +172,7 @@ static void onnx_tilde_dump(t_onnx_tilde *x, t_symbol *s, int argc, t_atom *argv
 
         int total = 0, supported = 0, unsupported = 0, newer = 0;
 
+        post("[onnx~] Checking Operators Compatibility", opset);
         struct onnx_graph_t *g = ctx->g;
         for (int i = 0; i < g->nlen; i++) {
             struct onnx_node_t *n = &g->nodes[i];
@@ -182,13 +199,11 @@ static void onnx_tilde_dump(t_onnx_tilde *x, t_symbol *s, int argc, t_atom *argv
             }
 
             if (is_supported) {
-                post("[onnx~] %s %s-%d (%s) via %s%s", is_supported ? "[OK]" : "[UNSUPPORTED]",
-                     op_type, n->opset, domain, resolver, (!version_ok ? " [NEWER-OPSET]" : ""));
-            }
-            {
-                logpost(x, 1, "[onnx~] %s %s-%d (%s) via %s%s",
-                        is_supported ? "[OK]" : "[UNSUPPORTED]", op_type, n->opset, domain,
-                        resolver, (!version_ok ? " [NEWER-OPSET]" : ""));
+                post("\t%s %s-%d (%s) via %s%s", is_supported ? "[OK]" : "[UNSUPPORTED]", op_type,
+                     n->opset, domain, resolver, (!version_ok ? " [NEWER-OPSET]" : ""));
+            } else {
+                logpost(x, 1, "\t%s %s-%d (%s) via %s%s", is_supported ? "[OK]" : "[UNSUPPORTED]",
+                        op_type, n->opset, domain, resolver, (!version_ok ? " [NEWER-OPSET]" : ""));
             }
         }
 
@@ -267,7 +282,15 @@ static void onnx_tilde_anything(t_onnx_tilde *x, t_symbol *s, int argc, t_atom *
     }
 
     // Run the graph
-    onnx_run(x->ctx);
+    if (x->time_inference) {
+        auto start = std::chrono::high_resolution_clock::now();
+        onnx_run(x->ctx);
+        auto end = std::chrono::high_resolution_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        post("Took %lld µs to run", static_cast<long long>(elapsed.count()));
+    } else {
+        onnx_run(x->ctx);
+    }
 
     // Emit outputs
     for (int i = 0; i < x->tensor_out_count; i++) {
@@ -429,6 +452,7 @@ static void *onnx_tilde_new(t_symbol *s, int argc, t_atom *argv) {
     x->tensor_out_count = argc - 1;
 
     x->supported = onnx_tilde_check_compatibility(x);
+    x->time_inference = false;
 
     return x;
 }
@@ -446,10 +470,11 @@ static void onnx_tilde_free(t_onnx_tilde *x) {
 }
 
 // ─────────────────────────────────────
-extern "C" void onnx_tilde_setup(void) {
-    onnx_tilde_class = class_new(gensym("onnx~"), (t_newmethod)onnx_tilde_new,
+extern "C" void onnx_setup(void) {
+    onnx_tilde_class = class_new(gensym("onnx"), (t_newmethod)onnx_tilde_new,
                                  (t_method)onnx_tilde_free, sizeof(t_onnx_tilde), 0, A_GIMME, 0);
 
     class_addanything(onnx_tilde_class, onnx_tilde_anything);
-    class_addmethod(onnx_tilde_class, (t_method)onnx_tilde_dump, gensym("dump"), A_GIMME);
+    class_addmethod(onnx_tilde_class, (t_method)onnx_tilde_set, gensym("set"), A_GIMME, A_NULL);
+    class_addmethod(onnx_tilde_class, (t_method)onnx_tilde_dump, gensym("dump"), A_GIMME, A_NULL);
 }

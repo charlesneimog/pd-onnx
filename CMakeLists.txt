@@ -31,9 +31,18 @@ option(BUILD_EXAMPLES OFF)
 add_subdirectory(libonnx)
 target_compile_options(onnx PRIVATE -ffunction-sections -fdata-sections)
 target_link_options(onnx PRIVATE -Wl,--gc-sections)
+target_compile_options(
+  onnx
+  PUBLIC -O3
+         -march=native
+         -mtune=native
+         -ffast-math
+         -funroll-loops
+         -fstrict-aliasing
+         -ffunction-sections
+         -fdata-sections)
 
 # ╭──────────────────────────────────────╮
 # │            Pure Data external        │
 # ╰──────────────────────────────────────╯
-pd_add_external(onnx~ onnx.cpp LINK_LIBRARIES onnx)
-
+pd_add_external(pdonnx onnx.cpp EXTERNAL_NAME onnx LINK_LIBRARIES onnx)

@@ -1,0 +1,172 @@
+import puredata as pd
+import os
+import numpy as np
+import librosa
+import random
+from sklearn.metrics import classification_report
+from catboost import CatBoostClassifier
+from skl2onnx import convert_sklearn
+from skl2onnx.common.data_types import FloatTensorType
+
+import threading
+
+
+class pytrain(pd.NewObject):
+    name = "py.train"
+
+    def __init__(self, args):
+        # pd
+        self.inlets = 2
+        self.outlets = 2
+        self.tabname = "train"
+
+        # train method
+        self.max_offset = 256
+        self.n_windows = 10
+        self.iterations = 150
+        self.fn_estimators = 150
+        self.random_state = 42
+        self.test_fraction = 0.2
+
+        # train folder
+        self.trainfolder = ""
+        self.folders = {}
+        self.currtraindata = []
+        self.currtestdata = []
+
+        # models
+        self.clf = CatBoostClassifier(
+            iterations=self.iterations,
+            depth=6,
+            learning_rate=0.1,
+            loss_function="MultiClass",
+            random_seed=self.random_state,
+            verbose=100,
+            early_stopping_rounds=20,
+        )
+
+    def in_1_reload(self, args):
+        self.reload()
+
+    def in_1_trainfolder(self, args):
+        trainfolder = args[0]
+        if os.path.exists(trainfolder):
+            self.trainfolder = trainfolder
+        else:
+            trainfolder = os.path.join(self.get_current_dir(), trainfolder)
+            if not os.path.exists(trainfolder):
+                raise Exception(f"{args[0]} folder not found")
+            self.trainfolder = trainfolder
+        self.logpost(2, "Train folder: " + self.trainfolder)
+
+        folders = [
+            f
+            for f in os.listdir(self.trainfolder)
+            if os.path.isdir(os.path.join(self.trainfolder, f))
+        ]
+
+        self.folders = {}
+        for folder in folders:
+            self.folders[folder] = os.path.join(self.trainfolder, folder)
+
+    def get_train_mir(self):
+        for label, folder in self.folders.items():
+            all_files = [
+                os.path.join(folder, f)
+                for f in os.listdir(folder)
+                if f.endswith((".aif", ".aiff"))
+            ]
+            n_test = max(1, int(len(all_files) * self.test_fraction))
+            test_files = random.sample(all_files, n_test)
+            for f in test_files:
+                y, _ = librosa.load(f, sr=48000)
+                pd.tabwrite("train", y.tolist(), resize=True)
+                idx = random.randint(0, 1024)
+                while True:
+                    self.out(
+                        1, pd.LIST, [idx, "testdata"]
+                    )  # <- This will trigger in_2_testdata with mfcc
+                    if idx >= len(y) - 2048:
+                        break
+
+                    assert len(self.currtestdata) > 0
+                    self.X_test.append(self.currtestdata)
+                    self.y_test.append(label)
+                    self.currtestdata = []
+                    idx += random.randint(512, 1024)
+
+            train_files = [f for f in all_files if f not in test_files]
+            for f in train_files:
+                y, _ = librosa.load(f, sr=48000)
+                pd.tabwrite("train", y.tolist(), resize=True)
+                idx = random.randint(0, 1024)
+                while True:
+                    self.out(
+                        1, pd.LIST, [idx, "traindata"]
+                    )  # <- This will trigger in_2_traindata with mfcc
+                    if idx >= len(y) - 2048:
+                        break
+
+                    assert len(self.currtraindata) > 0
+                    self.X_train.append(self.currtraindata)
+                    self.y_train.append(label)
+                    self.currtraindata = []
+                    idx += random.randint(512, 1024)
+
+        self.x_np_train = np.array(self.X_train)
+        self.y_np_train = np.array(self.y_train)
+        self.x_np_test = np.array(self.X_test)
+        self.y_np_test = np.array(self.y_test)
+
+        self.logpost(2, "Done!")
+
+    def in_1_train(self, args):
+        self.clf.fit(
+            self.x_np_train,
+            self.y_np_train,
+            eval_set=(self.x_np_test, self.y_np_test),
+        )
+        self.logpost(2, "Train!")
+
+        # predict
+        self.logpost(2, "Validation")
+        y_pred = self.clf.predict(self.x_np_test)
+        self.logpost(2, classification_report(self.y_np_test, y_pred), prefix=False)
+
+    def in_1_export(self, args):
+        file = args[0]
+        if os.path.exists(file):
+            self.logpost(1, "Model already exists, export will replace it!")
+
+        path = os.path.join(self.get_current_dir(), file)
+        self.clf.save_model(path, format="onnx")
+        self.logpost(2, f"Model exported to {path}")
+
+    def in_1_printdata(self, data):
+        self.logpost(2, f"Size of data for train: {len(self.X_train)}")
+        self.logpost(2, f"Size of label for train: {len(self.y_train)}")
+        assert len(self.X_train) == len(self.y_train)
+
+        self.logpost(2, f"Size of data for test: {len(self.X_test)}")
+        self.logpost(2, f"Size of label for test: {len(self.y_test)}")
+        assert len(self.X_test) == len(self.y_test)
+
+    def in_2_testdata(self, data):
+        self.currtestdata = data
+
+    def in_2_traindata(self, data):
+        self.currtraindata = data
+
+    def in_1_analyze(self, args):
+        self.X_train, self.y_train = [], []
+        self.X_test, self.y_test = [], []
+        self.get_train_mir()
+        # t = threading.Thread(target=self.get_train_mir)
+        # t.start()
+        # t.join()
+
+        # # feats = self.extract_features_from_file(f)
+        # for feat in feats:
+        #     self.X_train.append(feat)
+        #     self.y_train.append(label)
+        # pd.post(f"Train: processed {idx}/{len(train_files)} files", end="\r")

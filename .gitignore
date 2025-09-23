@@ -1,3 +1,4 @@
 .cache/clangd/index
 Flute
 build
+compile_commands.json
