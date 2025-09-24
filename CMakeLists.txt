@@ -1,9 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
-project(onnx)
+
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  project(onnx)
+endif()
 
 # Global Configurations
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_C_STANDARD 23)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_POLICY_VERSION_MINIMUM "3.5")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -23,8 +26,6 @@ include(${PDCMAKE_FILE})
 # ╭──────────────────────────────────────╮
 # │            ONNX Runtime              │
 # ╰──────────────────────────────────────╯
-# libonnx C library
-
 option(BUILD_TESTS OFF)
 option(BUILD_EXAMPLES OFF)
 
@@ -45,4 +46,9 @@ target_compile_options(
 # ╭──────────────────────────────────────╮
 # │            Pure Data external        │
 # ╰──────────────────────────────────────╯
-pd_add_external(pdonnx onnx.cpp EXTERNAL_NAME onnx LINK_LIBRARIES onnx)
+pd_add_external(pdonnx ${CMAKE_CURRENT_SOURCE_DIR}/src/onnx.cpp EXTERNAL_NAME
+                onnx LINK_LIBRARIES onnx)
+
+pd_add_datafile(pdonnx "${CMAKE_CURRENT_SOURCE_DIR}/resources/onnx-help.pd")
+pd_add_datafile(pdonnx "${CMAKE_CURRENT_SOURCE_DIR}/resources/train.pd")
+pd_add_datafile(pdonnx "${CMAKE_CURRENT_SOURCE_DIR}/resources/model.onnx")

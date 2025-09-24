@@ -2,3 +2,5 @@
 Flute
 build
 compile_commands.json
+resources/__pycache__
+resources/media
