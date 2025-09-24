@@ -1,0 +1,68 @@
+---
+name: Compile PureData Object
+on:
+  workflow_dispatch:
+env:
+  LIBNAME: onnx
+  LIBVERSION: 0.1
+jobs:
+  macos:
+    runs-on: ${{ matrix.machines }}
+    strategy:
+      matrix:
+        precision: [32, 64]
+        machines: [macos-13, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Install PureData and Deps
+        run: |
+          brew install pd
+      - name: Build
+        run: |
+          cmake . -B build -DPDLIBDIR=./ -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+          cmake --install build
+      - name: Upload ONNX Folder
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{env.LIBNAME}}-${{env.LIBVERSION}}-${{matrix.machines}}${{matrix.precision}}
+          path: ${{env.LIBNAME}}
+  linux-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, aarch64, arm]
+        precision: [32, 64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+      - name: PureData Sources
+        run: |
+          sudo apt update
+          sudo add-apt-repository ppa:pure-data/pure-data -y
+          sudo apt install puredata -y
+      - name: Install aarch64 gcc
+        if: matrix.arch == 'aarch64'
+        run: |
+          sudo apt install gcc-aarch64-linux-gnu -y
+          sudo apt install g++-aarch64-linux-gnu -y
+      - name: Install arm gcc
+        if: matrix.arch == 'arm'
+        run: |
+          sudo apt install gcc-arm-linux-gnueabihf -y
+          sudo apt install g++-arm-linux-gnueabihf -y
+      - name: Build Object
+        run: |
+          cmake . -B build -DPD_FLOATSIZE=${{ matrix.precision }} -DCMAKE_SYSTEM_PROCESSOR=${{matrix.arch}} -DPDLIBDIR=./ -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -- -j$(nproc)
+          cmake --install build
+      - name: Upload Object
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{env.LIBNAME}}-${{env.LIBVERSION}}-${{matrix.machines}}${{matrix.precision}}
+          path: ${{env.LIBNAME}}
