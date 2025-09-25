@@ -339,14 +339,13 @@ static void onnx_tilde_anything(t_onnx_tilde *x, t_symbol *s, int argc, t_atom *
         case ONNX_TENSOR_TYPE_INT64: {
             int64_t *data = (int64_t *)to->datas;
             for (size_t j = 0; j < to->ndata; j++) {
-                // Potential range loss, but Pd floats are fine for typical class counts/scores
                 SETFLOAT(&a[j], (t_float)data[j]);
             }
             outlet_list(x->outs[i], gensym("list"), (int)to->ndata, a);
             break;
         }
         case ONNX_TENSOR_TYPE_STRING: {
-            char **data = (char **)to->datas; // ONNX stores strings as char*[]
+            char **data = (char **)to->datas;
             t_atom *atoms = (t_atom *)malloc(sizeof(t_atom) * to->ndata);
             if (!atoms) {
                 break;
@@ -364,24 +363,13 @@ static void onnx_tilde_anything(t_onnx_tilde *x, t_symbol *s, int argc, t_atom *
             free(atoms);
             break;
         }
-
         default:
             pd_error(x, "[onnx~] Unsupported output tensor type for '%s': %s", to->name,
                      onnx_tensor_type_tostring(to->type));
             break;
         }
-
         free(a);
     }
-}
-// ─────────────────────────────────────
-static void onnx_tilde_create_tensor_inout(t_onnx_tilde *x) {
-    if (!x->ctx || !x->ctx->g) {
-        return;
-    }
-
-    logpost(x, 3, "[onnx~] There is %d graphs", x->ctx->g->nlen);
-    // create outputs tensors
 }
 
 // ─────────────────────────────────────
@@ -424,7 +412,6 @@ static void *onnx_tilde_new(t_symbol *s, int argc, t_atom *argv) {
         }
     }
     // create input for tensors
-    onnx_tilde_create_tensor_inout(x);
     if (x->ctx && x->ctx->g) {
         struct onnx_graph_t *g = x->ctx->g;
         for (int i = 0; i < g->nlen; i++) {
@@ -466,6 +453,9 @@ static void onnx_tilde_free(t_onnx_tilde *x) {
 
     if (x->outs != NULL) {
         free(x->outs);
+    }
+    if (x->tensor_outputs != NULL) {
+        free(x->tensor_outputs);
     }
 }
 

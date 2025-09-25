@@ -39,3 +39,4 @@ pd_add_external(pdonnx ${CMAKE_CURRENT_SOURCE_DIR}/src/onnx.cpp EXTERNAL_NAME
 pd_add_datafile(pdonnx "${CMAKE_CURRENT_SOURCE_DIR}/resources/onnx-help.pd")
 pd_add_datafile(pdonnx "${CMAKE_CURRENT_SOURCE_DIR}/resources/train.pd")
 pd_add_datafile(pdonnx "${CMAKE_CURRENT_SOURCE_DIR}/resources/model.onnx")
+pd_add_datafile(pdonnx "${CMAKE_CURRENT_SOURCE_DIR}/resources/py.train.pd_py")
